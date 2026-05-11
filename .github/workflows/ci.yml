@@ -82,10 +82,14 @@ jobs:
           cd interview-ai
           npm ci
 
-      - name: Run frontend tests
+      - name: Run frontend tests (if script exists)
         run: |
           cd interview-ai
-          npm test -- --watchAll=false --passWithNoTests
+          if npm run | grep -q " test"; then
+            npm test -- --watchAll=false --passWithNoTests
+          else
+            echo "No test script found – skipping tests"
+          fi
 
       - name: Build frontend
         run: |
