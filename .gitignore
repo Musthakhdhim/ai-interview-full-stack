@@ -1,0 +1,40 @@
+# ====================
+# IDE and system files
+# ====================
+.idea/
+*.iml
+.vscode/
+.settings/
+.project
+.classpath
+.DS_Store
+Thumbs.db
+
+# ====================
+# Backend (interviewai)
+# ====================
+interviewai/target/
+interviewai/.mvn/
+interviewai/mvnw
+interviewai/mvnw.cmd
+interviewai/*.log
+interviewai/.env.properties          # <-- your backend secrets file
+interviewai/src/main/resources/application-local.properties
+interviewai/src/main/resources/application.properties.template
+
+# ====================
+# Frontend (interview-ai)
+# ====================
+interview-ai/node_modules/
+interview-ai/dist/
+interview-ai/build/
+interview-ai/.env                     # frontend real env file
+interview-ai/.env.local
+interview-ai/.env.*.local
+interview-ai/*.log
+
+# ====================
+# Root level secrets
+# ====================
+.env
+*.properties.local

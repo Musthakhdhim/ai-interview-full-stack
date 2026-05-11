@@ -1,0 +1,635 @@
+import { useState, useEffect, useRef, useMemo } from 'react';
+import { useSelector, useDispatch } from 'react-redux';
+import { useNavigate } from 'react-router-dom';
+import { toast } from 'react-toastify';
+import axiosClient from '../api/axiosClient';
+import { updateUser } from '../store/slices/authSlice';   
+import {
+  User, Mail, Phone, Lock, Bell, ShieldCheck,
+  Camera, Loader2
+} from 'lucide-react';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../components/ui/card';
+import { Button } from '../components/ui/button';
+import { Input } from '../components/ui/input';
+import { Label } from '../components/ui/label';
+import { Separator } from '../components/ui/separator';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
+import { Switch } from '../components/ui/switch';
+import { Avatar, AvatarFallback, AvatarImage } from '../components/ui/avatar';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
+import { Badge } from '../components/ui/badge';
+
+export default function ProfileSettingsPage() {
+  const dispatch = useDispatch();
+  const navigate = useNavigate();
+  const { user: reduxUser, token } = useSelector((state) => state.auth);
+  const [loading, setLoading] = useState(true);
+  
+  const [profileSaving, setProfileSaving] = useState(false);
+  const [emailSending, setEmailSending] = useState(false);
+  const [emailVerifying, setEmailVerifying] = useState(false);
+  const [prefSaving, setPrefSaving] = useState(false);
+  const [notifSaving, setNotifSaving] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(false);
+  
+  const fileInputRef = useRef(null);
+
+  const [fullName, setFullName] = useState('');
+  const [userName, setUserName] = useState('');
+  const [email, setEmail] = useState('');
+  const [phoneNumber, setPhoneNumber] = useState('');
+  const [profileImageUrl, setProfileImageUrl] = useState('');
+
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+
+  const [emailUpdateStep, setEmailUpdateStep] = useState('idle');
+  const [newEmail, setNewEmail] = useState('');
+  const [oldEmailOtp, setOldEmailOtp] = useState('');
+  const [newEmailOtp, setNewEmailOtp] = useState('');
+
+  const [defaultInterviewType, setDefaultInterviewType] = useState('technical');
+  const [avatarStyle, setAvatarStyle] = useState('professional');
+  const [language, setLanguage] = useState('english');
+
+  const [emailUpdates, setEmailUpdates] = useState(true);
+  const [interviewReminders, setInterviewReminders] = useState(true);
+  const [marketingEmails, setMarketingEmails] = useState(false);
+
+  const role = reduxUser?.role?.toLowerCase();
+  const showPreferences = role === 'interviewee';
+  const tabList = useMemo(() => {
+    const tabs = ['profile', 'security', 'notifications'];
+    if (showPreferences) tabs.splice(2, 0, 'preferences');
+    return tabs;
+  }, [showPreferences]);
+
+  useEffect(() => {
+    if (!token) {
+      navigate('/login');
+      return;
+    }
+    fetchProfileData();
+  }, [token]);
+
+  const fetchProfileData = async () => {
+    try {
+      setLoading(true);
+      const profileRes = await axiosClient.get('/profile');
+      const userData = profileRes.data.data;
+      setFullName(userData.fullName || '');
+      setUserName(userData.userName || '');
+      setEmail(userData.email || '');
+      setPhoneNumber(userData.phoneNumber || '');
+      setProfileImageUrl(userData.profileImageUrl || '');
+      
+      console.log(userData.profileImageUrl);
+      
+      try {
+        const prefsRes = await axiosClient.get('/profile/preferences');
+        const prefs = prefsRes.data.data;
+        setDefaultInterviewType(prefs.defaultInterviewType || 'technical');
+        setAvatarStyle(prefs.avatarStyle || 'professional');
+        setLanguage(prefs.language || 'english');
+      } catch (err) {}
+
+      const notifRes = await axiosClient.get('/profile/notifications');
+      const notif = notifRes.data.data;
+      setEmailUpdates(notif.emailUpdates);
+      setInterviewReminders(notif.interviewReminders);
+      setMarketingEmails(notif.marketingEmails);
+    } catch (error) {
+      toast.error(error.response?.data?.message || 'Failed to load profile');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handlePhotoUpload = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      toast.error('Only image files are allowed');
+      return;
+    }
+    const formData = new FormData();
+    formData.append('file', file);
+    setUploadProgress(true);
+    try {
+      const res = await axiosClient.post('/profile/upload-photo', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      });
+      const imageUrl = res.data.data;
+      setProfileImageUrl(imageUrl);
+      toast.success('Profile photo uploaded');
+      await axiosClient.put('/profile/update-profile', { fullName, phoneNumber, profileImageUrl: imageUrl });
+      // Update Redux user with the new image URL
+      dispatch(updateUser({ profileImageUrl: imageUrl }));
+      toast.success('Profile updated with new photo');
+    } catch (error) {
+      toast.error(error.response?.data?.message || 'Upload failed');
+    } finally {
+      setUploadProgress(false);
+    }
+  };
+
+  const handleSaveProfile = async () => {
+    setProfileSaving(true);
+    try {
+      await axiosClient.put('/profile/update-profile', { fullName, phoneNumber, profileImageUrl });
+      // Update Redux user with the changes
+      dispatch(updateUser({ name: fullName, phone: phoneNumber }));
+      toast.success('Profile updated');
+    } catch (error) {
+      toast.error(error.response?.data?.message || 'Update failed');
+    } finally {
+      setProfileSaving(false);
+    }
+  };
+
+  const handleChangePassword = async () => {
+    if (!currentPassword || !newPassword || !confirmPassword) {
+      toast.error('Please fill all fields');
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      toast.error('New passwords do not match');
+      return;
+    }
+    setProfileSaving(true);
+    const startTime = Date.now();
+    try {
+      await axiosClient.put('/profile/change-password', {
+        oldPassword: currentPassword,
+        newPassword,
+        confirmPassword
+      });
+      const elapsed = Date.now() - startTime;
+      if (elapsed < 1000) await new Promise(resolve => setTimeout(resolve, 1000 - elapsed));
+      toast.success('Password changed successfully');
+      setCurrentPassword('');
+      setNewPassword('');
+      setConfirmPassword('');
+    } catch (error) {
+      toast.error(error.response?.data?.message || 'Password change failed');
+    } finally {
+      setProfileSaving(false);
+    }
+  };
+
+  const handleSendEmailOtp = async () => {
+    if (!newEmail || newEmail === email) {
+      toast.error('Please enter a different valid email');
+      return;
+    }
+    setEmailSending(true);
+    try {
+      await axiosClient.put('/profile/update-email', { email: newEmail });
+      setEmailUpdateStep('otpSent');
+      toast.success('Verification codes sent to both email addresses');
+    } catch (error) {
+      toast.error(error.response?.data?.message || 'Failed to send OTPs');
+    } finally {
+      setEmailSending(false);
+    }
+  };
+
+  const handleVerifyAndUpdateEmail = async () => {
+    if (!oldEmailOtp || !newEmailOtp) {
+      toast.error('Please enter both OTP codes');
+      return;
+    }
+    setEmailVerifying(true);
+    try {
+      await axiosClient.put('/profile/update-email/verify-otp', {
+        oldEmailOtp,
+        newEmailOtp,
+        newEmail
+      });
+      toast.success('Email updated successfully! Please log in again with your new email.');
+      setTimeout(() => {
+        localStorage.removeItem('accessToken');
+        localStorage.removeItem('user');
+        window.location.href = '/login';
+      }, 2000);
+    } catch (error) {
+      toast.error(error.response?.data?.message || 'OTP verification failed');
+      setEmailVerifying(false);
+    }
+  };
+
+  const cancelEmailUpdate = () => {
+    setEmailUpdateStep('idle');
+    setNewEmail('');
+    setOldEmailOtp('');
+    setNewEmailOtp('');
+  };
+
+  const handleSavePreferences = async () => {
+    setPrefSaving(true);
+    const startTime = Date.now();
+    try {
+      await axiosClient.put('/profile/preferences', {
+        defaultInterviewType,
+        avatarStyle,
+        language
+      });
+      const elapsed = Date.now() - startTime;
+      if (elapsed < 1000) await new Promise(resolve => setTimeout(resolve, 1000 - elapsed));
+      toast.success('Preferences saved');
+    } catch (error) {
+      toast.error(error.response?.data?.message || 'Failed to save preferences');
+    } finally {
+      setPrefSaving(false);
+    }
+  };
+
+  const handleSaveNotifications = async () => {
+    setNotifSaving(true);
+    const startTime = Date.now();
+    try {
+      await axiosClient.put('/profile/notifications', {
+        emailUpdates,
+        interviewReminders,
+        marketingEmails
+      });
+      const elapsed = Date.now() - startTime;
+      if (elapsed < 1000) await new Promise(resolve => setTimeout(resolve, 1000 - elapsed));
+      toast.success('Notification settings saved');
+    } catch (error) {
+      toast.error(error.response?.data?.message || 'Failed to save notification settings');
+    } finally {
+      setNotifSaving(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-96">
+        <Loader2 className="size-8 animate-spin text-indigo-600" />
+      </div>
+    );
+  }
+
+  return (
+    <div className="max-w-4xl mx-auto space-y-6">
+      <div>
+        <h1 className="text-3xl font-bold text-gray-900">Settings</h1>
+        <p className="text-gray-600 mt-1">Manage your account settings and preferences</p>
+      </div>
+
+      <Tabs defaultValue="profile" className="space-y-6">
+        <TabsList className={`grid w-full ${showPreferences ? 'grid-cols-4' : 'grid-cols-3'}`}>
+          {tabList.map((tabValue) => (
+            <TabsTrigger key={tabValue} value={tabValue} className="capitalize">
+              {tabValue === 'profile' ? 'Profile' :
+               tabValue === 'security' ? 'Security' :
+               tabValue === 'preferences' ? 'Preferences' : 'Notifications'}
+            </TabsTrigger>
+          ))}
+        </TabsList>
+
+        <TabsContent value="profile" className="space-y-6">
+          <Card className="border-0 shadow-lg">
+            <CardHeader>
+              <CardTitle>Profile Information</CardTitle>
+              <CardDescription>Update your personal details</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              <div className="flex items-center gap-6">
+                <div className="relative">
+                  <Avatar className="size-24">
+                    {profileImageUrl && <AvatarImage src={profileImageUrl} />}
+                    <AvatarFallback className="bg-indigo-100 text-indigo-600 text-2xl">
+                      {fullName?.[0]?.toUpperCase() || reduxUser?.name?.[0]?.toUpperCase() || 'U'}
+                    </AvatarFallback>
+                  </Avatar>
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current.click()}
+                    className="absolute bottom-0 right-0 p-1.5 bg-indigo-600 rounded-full text-white shadow-md hover:bg-indigo-700"
+                    disabled={uploadProgress}
+                  >
+                    {uploadProgress ? <Loader2 className="size-3 animate-spin" /> : <Camera className="size-3" />}
+                  </button>
+                  <input
+                    type="file"
+                    ref={fileInputRef}
+                    className="hidden"
+                    accept="image/*"
+                    onChange={handlePhotoUpload}
+                  />
+                </div>
+                <div>
+                  <p className="text-sm text-gray-500">JPG, GIF or PNG. Max size 2MB</p>
+                  <p className="text-xs text-gray-400 mt-1">Click camera icon to upload</p>
+                </div>
+              </div>
+
+              <Separator />
+
+              <div className="grid md:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="fullName">Full Name</Label>
+                  <div className="relative">
+                    <User className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-gray-400" />
+                    <Input
+                      id="fullName"
+                      value={fullName}
+                      onChange={(e) => setFullName(e.target.value)}
+                      className="pl-10"
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="userName">Username</Label>
+                  <div className="relative">
+                    <User className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-gray-400" />
+                    <Input id="userName" value={userName} disabled className="pl-10 bg-gray-50" />
+                  </div>
+                  <p className="text-xs text-gray-500">Username cannot be changed</p>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="email">Current Email</Label>
+                  <div className="relative">
+                    <Mail className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-gray-400" />
+                    <Input id="email" type="email" value={email} disabled className="pl-10 bg-gray-50" />
+                  </div>
+                  <p className="text-xs text-gray-500">To change email, use the "Update Email" section below</p>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="phone">Phone Number</Label>
+                  <div className="relative">
+                    <Phone className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-gray-400" />
+                    <Input
+                      id="phone"
+                      type="tel"
+                      value={phoneNumber}
+                      onChange={(e) => setPhoneNumber(e.target.value)}
+                      className="pl-10"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <Button 
+                type="button" 
+                onClick={handleSaveProfile} 
+                disabled={profileSaving}
+              >
+                {profileSaving ? <Loader2 className="mr-2 size-4 animate-spin" /> : null}
+                Save Profile Changes
+              </Button>
+            </CardContent>
+          </Card>
+
+          <Card className="border-0 shadow-lg">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <ShieldCheck className="size-5 text-indigo-600" />
+                Update Email Address
+              </CardTitle>
+              <CardDescription>Verify your identity with OTP codes sent to both emails</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {emailUpdateStep === 'idle' ? (
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="newEmail">New Email Address</Label>
+                    <Input
+                      id="newEmail"
+                      type="email"
+                      value={newEmail}
+                      onChange={(e) => setNewEmail(e.target.value)}
+                      placeholder="your.new.email@example.com"
+                    />
+                  </div>
+                  <Button 
+                    type="button" 
+                    onClick={handleSendEmailOtp} 
+                    disabled={emailSending}
+                  >
+                    {emailSending ? <Loader2 className="mr-2 size-4 animate-spin" /> : null}
+                    Send OTP Codes
+                  </Button>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  <div className="p-4 bg-blue-50 rounded-lg border border-blue-200">
+                    <div className="flex items-center gap-2 mb-2">
+                      <Badge className="bg-blue-600">OTP Sent</Badge>
+                    </div>
+                    <p className="text-sm text-gray-700 mb-1">✓ OTP sent to <strong>{email}</strong></p>
+                    <p className="text-sm text-gray-700">✓ OTP sent to <strong>{newEmail}</strong></p>
+                  </div>
+
+                  <div className="grid md:grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="oldOtp">OTP from Current Email</Label>
+                      <Input
+                        id="oldOtp"
+                        type="text"
+                        maxLength={6}
+                        value={oldEmailOtp}
+                        onChange={(e) => setOldEmailOtp(e.target.value.replace(/\D/g, ''))}
+                        placeholder="000000"
+                        className="text-center text-lg tracking-widest"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="newOtp">OTP from New Email</Label>
+                      <Input
+                        id="newOtp"
+                        type="text"
+                        maxLength={6}
+                        value={newEmailOtp}
+                        onChange={(e) => setNewEmailOtp(e.target.value.replace(/\D/g, ''))}
+                        placeholder="000000"
+                        className="text-center text-lg tracking-widest"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="flex gap-2">
+                    <Button
+                      type="button"
+                      onClick={handleVerifyAndUpdateEmail}
+                      disabled={!oldEmailOtp || !newEmailOtp || emailVerifying}
+                      className="flex-1 bg-green-600 hover:bg-green-700"
+                    >
+                      {emailVerifying ? <Loader2 className="mr-2 size-4 animate-spin" /> : null}
+                      Verify & Update Email
+                    </Button>
+                    <Button type="button" variant="outline" onClick={cancelEmailUpdate}>
+                      Cancel
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="security" className="space-y-6">
+          <Card className="border-0 shadow-lg">
+            <CardHeader>
+              <CardTitle>Change Password</CardTitle>
+              <CardDescription>Update your password to keep your account secure</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="currentPassword">Current Password</Label>
+                <div className="relative">
+                  <Lock className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-gray-400" />
+                  <Input
+                    id="currentPassword"
+                    type="password"
+                    value={currentPassword}
+                    onChange={(e) => setCurrentPassword(e.target.value)}
+                    className="pl-10"
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="newPassword">New Password</Label>
+                <div className="relative">
+                  <Lock className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-gray-400" />
+                  <Input
+                    id="newPassword"
+                    type="password"
+                    value={newPassword}
+                    onChange={(e) => setNewPassword(e.target.value)}
+                    className="pl-10"
+                  />
+                </div>
+                <p className="text-xs text-gray-500">
+                  At least 8 chars, 1 uppercase, 1 lowercase, 1 number, 1 special char
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="confirmPassword">Confirm New Password</Label>
+                <div className="relative">
+                  <Lock className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-gray-400" />
+                  <Input
+                    id="confirmPassword"
+                    type="password"
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
+                    className="pl-10"
+                  />
+                </div>
+              </div>
+
+              <Button type="button" onClick={handleChangePassword} disabled={profileSaving}>
+                {profileSaving ? <Loader2 className="mr-2 size-4 animate-spin" /> : null}
+                Update Password
+              </Button>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {showPreferences && (
+          <TabsContent value="preferences" className="space-y-6">
+            <Card className="border-0 shadow-lg">
+              <CardHeader>
+                <CardTitle>Default Interview Settings</CardTitle>
+                <CardDescription>Set your default preferences for new interviews</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="grid md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="defaultType">Default Interview Type</Label>
+                    <Select value={defaultInterviewType} onValueChange={setDefaultInterviewType}>
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="technical">Technical</SelectItem>
+                        <SelectItem value="hr">HR</SelectItem>
+                        <SelectItem value="behavioral">Behavioral</SelectItem>
+                        <SelectItem value="salary">Salary</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="avatarStyle">Avatar Style</Label>
+                    <Select value={avatarStyle} onValueChange={setAvatarStyle}>
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="professional">👔 Professional</SelectItem>
+                        <SelectItem value="friendly">😊 Friendly</SelectItem>
+                        <SelectItem value="strict">🧐 Strict</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="language">Language</Label>
+                    <Select value={language} onValueChange={setLanguage}>
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="english">English</SelectItem>
+                        <SelectItem value="spanish">Spanish</SelectItem>
+                        <SelectItem value="french">French</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+
+                <Button type="button" onClick={handleSavePreferences} disabled={prefSaving}>
+                  {prefSaving ? <Loader2 className="mr-2 size-4 animate-spin" /> : null}
+                  Save Preferences
+                </Button>
+              </CardContent>
+            </Card>
+          </TabsContent>
+        )}
+
+        {/* Notifications Tab */}
+        <TabsContent value="notifications" className="space-y-6">
+          <Card className="border-0 shadow-lg">
+            <CardHeader>
+              <CardTitle>Notification Preferences</CardTitle>
+              <CardDescription>Manage how you receive updates</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              <div className="flex items-center justify-between">
+                <div className="space-y-1">
+                  <Label>Email Notifications</Label>
+                  <p className="text-sm text-gray-500">Receive email updates about your account</p>
+                </div>
+                <Switch checked={emailUpdates} onCheckedChange={setEmailUpdates} />
+              </div>
+              <Separator />
+              <div className="flex items-center justify-between">
+                <div className="space-y-1">
+                  <Label>Interview Reminders</Label>
+                  <p className="text-sm text-gray-500">Get reminders for scheduled interviews</p>
+                </div>
+                <Switch checked={interviewReminders} onCheckedChange={setInterviewReminders} />
+              </div>
+              <Separator />
+              <div className="flex items-center justify-between">
+                <div className="space-y-1">
+                  <Label>Marketing Emails</Label>
+                  <p className="text-sm text-gray-500">Receive tips and promotional content</p>
+                </div>
+                <Switch checked={marketingEmails} onCheckedChange={setMarketingEmails} />
+              </div>
+              <Button type="button" onClick={handleSaveNotifications} disabled={notifSaving}>
+                {notifSaving ? <Loader2 className="mr-2 size-4 animate-spin" /> : null}
+                Save Notification Settings
+              </Button>
+            </CardContent>
+          </Card>
+        </TabsContent>
+      </Tabs>
+    </div>
+  );
+}
+
