@@ -63,7 +63,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '21'
+          node-version: '20'   # instead of '21'
 
       - name: Cache npm dependencies
         uses: actions/cache@v3
